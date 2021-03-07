@@ -2,6 +2,7 @@ package conf
 
 import (
 	"encoding/json"
+	"math"
 	"strings"
 
 	"github.com/golang/protobuf/proto"
@@ -247,11 +248,13 @@ func readFileOrString(f string, s []string) ([]byte, error) {
 }
 
 type TLSCertConfig struct {
-	CertFile string   `json:"certificateFile"`
-	CertStr  []string `json:"certificate"`
-	KeyFile  string   `json:"keyFile"`
-	KeyStr   []string `json:"key"`
-	Usage    string   `json:"usage"`
+	CertFile       string   `json:"certificateFile"`
+	CertStr        []string `json:"certificate"`
+	KeyFile        string   `json:"keyFile"`
+	KeyStr         []string `json:"key"`
+	Usage          string   `json:"usage"`
+	OcspStapling   uint64   `json:"ocspStapling"`
+	OneTimeLoading bool     `json:"oneTimeLoading"`
 }
 
 // Build implements Buildable.
@@ -263,6 +266,7 @@ func (c *TLSCertConfig) Build() (*tls.Certificate, error) {
 		return nil, newError("failed to parse certificate").Base(err)
 	}
 	certificate.Certificate = cert
+	certificate.CertificatePath = c.CertFile
 
 	if len(c.KeyFile) > 0 || len(c.KeyStr) > 0 {
 		key, err := readFileOrString(c.KeyFile, c.KeyStr)
@@ -270,6 +274,7 @@ func (c *TLSCertConfig) Build() (*tls.Certificate, error) {
 			return nil, newError("failed to parse key").Base(err)
 		}
 		certificate.Key = key
+		certificate.KeyPath = c.KeyFile
 	}
 
 	switch strings.ToLower(c.Usage) {
@@ -282,19 +287,27 @@ func (c *TLSCertConfig) Build() (*tls.Certificate, error) {
 	default:
 		certificate.Usage = tls.Certificate_ENCIPHERMENT
 	}
+	if certificate.KeyPath == "" && certificate.CertificatePath == "" {
+		certificate.OneTimeLoading = true
+	} else {
+		certificate.OneTimeLoading = c.OneTimeLoading
+	}
+	certificate.OcspStapling = c.OcspStapling
 
 	return certificate, nil
 }
 
 type TLSConfig struct {
 	Insecure                 bool             `json:"allowInsecure"`
-	InsecureCiphers          bool             `json:"allowInsecureCiphers"`
 	Certs                    []*TLSCertConfig `json:"certificates"`
 	ServerName               string           `json:"serverName"`
 	ALPN                     *StringList      `json:"alpn"`
-	DisableSessionResumption bool             `json:"disableSessionResumption"`
+	EnableSessionResumption  bool             `json:"enableSessionResumption"`
 	DisableSystemRoot        bool             `json:"disableSystemRoot"`
 	MinVersion               string           `json:"minVersion"`
+	MaxVersion               string           `json:"maxVersion"`
+	CipherSuites             string           `json:"cipherSuites"`
+	PreferServerCipherSuites bool             `json:"preferServerCipherSuites"`
 }
 
 // Build implements Buildable.
@@ -309,37 +322,41 @@ func (c *TLSConfig) Build() (proto.Message, error) {
 		config.Certificate[idx] = cert
 	}
 	serverName := c.ServerName
-	config.MinVersion = c.MinVersion
 	config.AllowInsecure = c.Insecure
-	config.AllowInsecureCiphers = c.InsecureCiphers
 	if len(c.ServerName) > 0 {
 		config.ServerName = serverName
 	}
 	if c.ALPN != nil && len(*c.ALPN) > 0 {
 		config.NextProtocol = []string(*c.ALPN)
 	}
-	config.DisableSessionResumption = c.DisableSessionResumption
+	config.EnableSessionResumption = c.EnableSessionResumption
 	config.DisableSystemRoot = c.DisableSystemRoot
+	config.MinVersion = c.MinVersion
+	config.MaxVersion = c.MaxVersion
+	config.CipherSuites = c.CipherSuites
+	config.PreferServerCipherSuites = c.PreferServerCipherSuites
 	return config, nil
 }
 
 type XTLSCertConfig struct {
-	CertFile string   `json:"certificateFile"`
-	CertStr  []string `json:"certificate"`
-	KeyFile  string   `json:"keyFile"`
-	KeyStr   []string `json:"key"`
-	Usage    string   `json:"usage"`
+	CertFile       string   `json:"certificateFile"`
+	CertStr        []string `json:"certificate"`
+	KeyFile        string   `json:"keyFile"`
+	KeyStr         []string `json:"key"`
+	Usage          string   `json:"usage"`
+	OcspStapling   uint64   `json:"ocspStapling"`
+	OneTimeLoading bool     `json:"oneTimeLoading"`
 }
 
 // Build implements Buildable.
 func (c *XTLSCertConfig) Build() (*xtls.Certificate, error) {
 	certificate := new(xtls.Certificate)
-
 	cert, err := readFileOrString(c.CertFile, c.CertStr)
 	if err != nil {
 		return nil, newError("failed to parse certificate").Base(err)
 	}
 	certificate.Certificate = cert
+	certificate.CertificatePath = c.CertFile
 
 	if len(c.KeyFile) > 0 || len(c.KeyStr) > 0 {
 		key, err := readFileOrString(c.KeyFile, c.KeyStr)
@@ -347,6 +364,7 @@ func (c *XTLSCertConfig) Build() (*xtls.Certificate, error) {
 			return nil, newError("failed to parse key").Base(err)
 		}
 		certificate.Key = key
+		certificate.KeyPath = c.KeyFile
 	}
 
 	switch strings.ToLower(c.Usage) {
@@ -359,19 +377,27 @@ func (c *XTLSCertConfig) Build() (*xtls.Certificate, error) {
 	default:
 		certificate.Usage = xtls.Certificate_ENCIPHERMENT
 	}
+	if certificate.KeyPath == "" && certificate.CertificatePath == "" {
+		certificate.OneTimeLoading = true
+	} else {
+		certificate.OneTimeLoading = c.OneTimeLoading
+	}
+	certificate.OcspStapling = c.OcspStapling
 
 	return certificate, nil
 }
 
 type XTLSConfig struct {
 	Insecure                 bool              `json:"allowInsecure"`
-	InsecureCiphers          bool              `json:"allowInsecureCiphers"`
 	Certs                    []*XTLSCertConfig `json:"certificates"`
 	ServerName               string            `json:"serverName"`
 	ALPN                     *StringList       `json:"alpn"`
-	DisableSessionResumption bool              `json:"disableSessionResumption"`
+	EnableSessionResumption  bool              `json:"enableSessionResumption"`
 	DisableSystemRoot        bool              `json:"disableSystemRoot"`
 	MinVersion               string            `json:"minVersion"`
+	MaxVersion               string            `json:"maxVersion"`
+	CipherSuites             string            `json:"cipherSuites"`
+	PreferServerCipherSuites bool              `json:"preferServerCipherSuites"`
 }
 
 // Build implements Buildable.
@@ -387,16 +413,18 @@ func (c *XTLSConfig) Build() (proto.Message, error) {
 	}
 	serverName := c.ServerName
 	config.AllowInsecure = c.Insecure
-	config.AllowInsecureCiphers = c.InsecureCiphers
 	if len(c.ServerName) > 0 {
 		config.ServerName = serverName
 	}
 	if c.ALPN != nil && len(*c.ALPN) > 0 {
 		config.NextProtocol = []string(*c.ALPN)
 	}
-	config.MinVersion = c.MinVersion
-	config.DisableSessionResumption = c.DisableSessionResumption
+	config.EnableSessionResumption = c.EnableSessionResumption
 	config.DisableSystemRoot = c.DisableSystemRoot
+	config.MinVersion = c.MinVersion
+	config.MaxVersion = c.MaxVersion
+	config.CipherSuites = c.CipherSuites
+	config.PreferServerCipherSuites = c.PreferServerCipherSuites
 	return config, nil
 }
 
@@ -423,20 +451,32 @@ func (p TransportProtocol) Build() (string, error) {
 }
 
 type SocketConfig struct {
-	Mark                int32  `json:"mark"`
-	TFO                 *bool  `json:"tcpFastOpen"`
-	TProxy              string `json:"tproxy"`
-	AcceptProxyProtocol bool   `json:"acceptProxyProtocol"`
+	Mark                int32       `json:"mark"`
+	TFO                 interface{} `json:"tcpFastOpen"`
+	TProxy              string      `json:"tproxy"`
+	AcceptProxyProtocol bool        `json:"acceptProxyProtocol"`
+	DomainStrategy      string      `json:"domainStrategy"`
+	DialerProxy         string      `json:"dialerProxy"`
 }
 
 // Build implements Buildable.
 func (c *SocketConfig) Build() (*internet.SocketConfig, error) {
-	var tfoSettings internet.SocketConfig_TCPFastOpenState
+	tfo := int32(-1)
 	if c.TFO != nil {
-		if *c.TFO {
-			tfoSettings = internet.SocketConfig_Enable
-		} else {
-			tfoSettings = internet.SocketConfig_Disable
+		switch v := c.TFO.(type) {
+		case bool:
+			if v {
+				tfo = 256
+			} else {
+				tfo = 0
+			}
+		case float64:
+			if v < 0 {
+				return nil, newError("tcpFastOpen: only boolean and non-negative integer value is acceptable")
+			}
+			tfo = int32(math.Min(v, math.MaxInt32))
+		default:
+			return nil, newError("tcpFastOpen: only boolean and non-negative integer value is acceptable")
 		}
 	}
 	var tproxy internet.SocketConfig_TProxyMode
@@ -449,11 +489,23 @@ func (c *SocketConfig) Build() (*internet.SocketConfig, error) {
 		tproxy = internet.SocketConfig_Off
 	}
 
+	var dStrategy = internet.DomainStrategy_AS_IS
+	switch strings.ToLower(c.DomainStrategy) {
+	case "useip", "use_ip":
+		dStrategy = internet.DomainStrategy_USE_IP
+	case "useip4", "useipv4", "use_ipv4", "use_ip_v4", "use_ip4":
+		dStrategy = internet.DomainStrategy_USE_IP4
+	case "useip6", "useipv6", "use_ipv6", "use_ip_v6", "use_ip6":
+		dStrategy = internet.DomainStrategy_USE_IP6
+	}
+
 	return &internet.SocketConfig{
 		Mark:                c.Mark,
-		Tfo:                 tfoSettings,
+		Tfo:                 tfo,
 		Tproxy:              tproxy,
+		DomainStrategy:      dStrategy,
 		AcceptProxyProtocol: c.AcceptProxyProtocol,
+		DialerProxy:         c.DialerProxy,
 	}, nil
 }
 
@@ -590,6 +642,9 @@ func (c *StreamConfig) Build() (*internet.StreamConfig, error) {
 
 type ProxyConfig struct {
 	Tag string `json:"tag"`
+
+	// TransportLayerProxy: For compatibility.
+	TransportLayerProxy bool `json:"transportLayer"`
 }
 
 // Build implements Buildable.
@@ -598,6 +653,7 @@ func (v *ProxyConfig) Build() (*internet.ProxyConfig, error) {
 		return nil, newError("Proxy tag is not set.")
 	}
 	return &internet.ProxyConfig{
-		Tag: v.Tag,
+		Tag:                 v.Tag,
+		TransportLayerProxy: v.TransportLayerProxy,
 	}, nil
 }
